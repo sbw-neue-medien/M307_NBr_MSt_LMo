@@ -1,84 +1,89 @@
 <?php
-session_start();
 require_once '../php/db.php';
 
 function validateInput($data) {
     $errors = [];
 
-    // Required fields
-    $required = ['customer_name', 'contact_person', 'email', 'phone', 'street', 'postal_code', 'city', 'customer_class'];
-    foreach ($required as $field) {
-        if (empty(trim($data[$field]))) {
-            $errors[] = ucfirst(str_replace('_', ' ', $field)) . ' is required.';
-        }
+    if (empty($data['customer_name'])) {
+        $errors[] = 'Customer name is required.';
     }
-
-    // Email validation
-    if (!empty($data['email']) && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
-        $errors[] = 'Invalid email format.';
+    if (empty($data['contact_name'])) {
+        $errors[] = 'Contact name is required.';
     }
-
-    // Phone validation (simple: digits, spaces, hyphens, parentheses)
-    if (!empty($data['phone']) && !preg_match('/^[\d\s\-\(\)]+$/', $data['phone'])) {
-        $errors[] = 'Invalid phone format.';
+    if (empty($data['email']) || !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+        $errors[] = 'Valid email is required.';
+    }
+    if (empty($data['phone']) || !preg_match('/^\+?[0-9\s\-\(\)]+$/', $data['phone'])) {
+        $errors[] = 'Valid phone number is required.';
+    }
+    if (empty($data['street'])) {
+        $errors[] = 'Street is required.';
+    }
+    if (empty($data['postal_code'])) {
+        $errors[] = 'Postal code is required.';
+    }
+    if (empty($data['city'])) {
+        $errors[] = 'City is required.';
+    }
+    if (empty($data['customer_class_id'])) {
+        $errors[] = 'Customer class is required.';
     }
 
     return $errors;
 }
 
+function sanitizeInput($data) {
+    return array_map('htmlspecialchars', $data);
+}
+
 function createCustomer($data) {
     global $pdo;
 
-    // Sanitize
-    $customer_name = htmlspecialchars(trim($data['customer_name']));
-    $contact_person = htmlspecialchars(trim($data['contact_person']));
-    $email = filter_var(trim($data['email']), FILTER_SANITIZE_EMAIL);
-    $phone = htmlspecialchars(trim($data['phone']));
-    $customer_class = (int)$data['customer_class'];
-    $newsletter = isset($data['newsletter']) ? 1 : 0;
-    $notes = htmlspecialchars(trim($data['notes']));
+    $stmt = $pdo->prepare("INSERT INTO customers (customer_name, customer_class_id, birth_date, created_at) VALUES (?, ?, ?, NOW())");
+    $stmt->execute([$data['customer_name'], $data['customer_class_id'], $data['birth_date'] ?: null]);
 
-    // Insert customer
-    $stmt = $pdo->prepare("INSERT INTO customers (customer_name, contact_person, email, phone, customer_class, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
-    $stmt->execute([$customer_name, $contact_person, $email, $phone, $customer_class]);
+    return $pdo->lastInsertId();
+}
 
-    $customer_id = $pdo->lastInsertId();
+function addAddress($customerId, $data) {
+    global $pdo;
 
-    // Insert address
-    $street = htmlspecialchars(trim($data['street']));
-    $postal_code = htmlspecialchars(trim($data['postal_code']));
-    $city = htmlspecialchars(trim($data['city']));
+    $stmt = $pdo->prepare("INSERT INTO addresses (customer_id, street, postal_code, city, country) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$customerId, $data['street'], $data['postal_code'], $data['city'], $data['country'] ?? 'Switzerland']);
+}
 
-    $stmt = $pdo->prepare("INSERT INTO addresses (customer_id, street, postal_code, city) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$customer_id, $street, $postal_code, $city]);
+function addContact($customerId, $data) {
+    global $pdo;
 
-    return $customer_id;
+    $stmt = $pdo->prepare("INSERT INTO contacts (customer_id, contact_name, email, phone) VALUES (?, ?, ?, ?)");
+    $stmt->execute([$customerId, $data['contact_name'], $data['email'], $data['phone']]);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = $_POST;
+    $data = sanitizeInput($_POST);
     $errors = validateInput($data);
 
     if (empty($errors)) {
         try {
-            createCustomer($data);
-            $_SESSION['message'] = 'Customer successfully created';
-            header('Location: ../pages/customers.php');
+            $pdo->beginTransaction();
+
+            $customerId = createCustomer($data);
+            addAddress($customerId, $data);
+            addContact($customerId, $data);
+
+            $pdo->commit();
+
+            header('Location: ../pages/customers.php?message=Customer successfully created');
             exit;
         } catch (Exception $e) {
-            $_SESSION['message'] = 'Error saving data';
-            $_SESSION['form_data'] = $data;
-            header('Location: ../pages/form.html');
-            exit;
+            $pdo->rollBack();
+            $errors[] = 'Error saving data: ' . $e->getMessage();
         }
-    } else {
-        $_SESSION['errors'] = $errors;
-        $_SESSION['form_data'] = $data;
-        header('Location: ../pages/form.html');
-        exit;
     }
-} else {
-    header('Location: ../pages/form.html');
+
+    // If errors, redirect back with errors and data
+    $query = http_build_query(['errors' => $errors, 'data' => $data]);
+    header('Location: ../pages/form.php?' . $query);
     exit;
 }
 ?>

@@ -1,15 +1,26 @@
 <?php
-$title = 'Add Customer';
+$title = 'Edit Customer';
 require_once '../includes/header.php';
 require_once '../php/get_customers.php';
 
+$id = $_GET['id'] ?? null;
+if (!$id) {
+    die('Customer ID is required.');
+}
+
+$customer = getCustomerById($id);
+if (!$customer) {
+    die('Customer not found.');
+}
+
 $customerClasses = getCustomerClasses();
 $errors = $_GET['errors'] ?? [];
-$data = $_GET['data'] ?? [];
+$data = $_GET['data'] ?? $customer; // Use existing data if no errors
+
 ?>
 
 <section>
-    <h2>Add New Customer</h2>
+    <h2>Edit Customer</h2>
     <?php if (!empty($errors)): ?>
         <div class="error">
             <ul>
@@ -19,7 +30,8 @@ $data = $_GET['data'] ?? [];
             </ul>
         </div>
     <?php endif; ?>
-    <form id="customerForm" action="../php/save_customer.php" method="post">
+    <form id="customerForm" action="../php/update_customer.php" method="post">
+        <input type="hidden" name="id" value="<?php echo htmlspecialchars($id); ?>">
         <fieldset>
             <legend>Customer Information</legend>
             <label for="customer_name">Customer Name:</label>
@@ -53,11 +65,8 @@ $data = $_GET['data'] ?? [];
 
             <label for="birth_date">Birth Date:</label>
             <input type="date" id="birth_date" name="birth_date" value="<?php echo htmlspecialchars($data['birth_date'] ?? ''); ?>">
-
-            <label for="notes">Notes:</label>
-            <textarea id="notes" name="notes"><?php echo htmlspecialchars($data['notes'] ?? ''); ?></textarea>
         </fieldset>
-        <button type="submit">Save Customer</button>
+        <button type="submit">Update Customer</button>
     </form>
 </section>
 
